@@ -10,6 +10,9 @@ import Organization from "@/pages/Organization";
 import Attendance from "@/pages/Attendance";
 import Vacations from "@/pages/Vacations";
 import Recruitment from "@/pages/Recruitment";
+import Payroll from "@/pages/Payroll";
+import Performance from "@/pages/Performance";
+import MyPayslips from "@/pages/MyPayslips";
 import Portal from "@/pages/Portal";
 
 function Protected({ children, adminOnly }) {
@@ -46,6 +49,9 @@ function App() {
             <Route path="/ponto" element={<Protected><Attendance /></Protected>} />
             <Route path="/ferias" element={<Protected><Vacations /></Protected>} />
             <Route path="/recrutamento" element={<Protected adminOnly><Recruitment /></Protected>} />
+            <Route path="/folha" element={<Protected adminOnly><Payroll /></Protected>} />
+            <Route path="/desempenho" element={<Protected adminOnly><Performance /></Protected>} />
+            <Route path="/meus-holerites" element={<Protected><MyPayslips /></Protected>} />
             <Route path="/portal" element={<Protected><Portal /></Protected>} />
           </Routes>
           <Toaster richColors position="top-right" />

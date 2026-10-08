@@ -9,6 +9,12 @@ async def seed_all(db, hash_password):
     if await db.departments.count_documents({}) > 0:
         # ensure users exist
         await _seed_users(db, hash_password)
+        if await db.eval_cycles.count_documents({}) == 0:
+            await db.eval_cycles.insert_one({
+                "name": "Avaliação 360° — 1º Semestre", "period": "2026 S1",
+                "description": "Ciclo semestral de avaliação de desempenho e potencial.",
+                "status": "ativo", "created_at": now_iso(),
+            })
         return
 
     deps = [
@@ -96,6 +102,13 @@ async def seed_all(db, hash_password):
                "requirements": j["requirements"], "location": j["location"], "status": j["status"],
                "created_at": now_iso()}
         await db.jobs.insert_one(doc)
+
+    # eval cycle
+    await db.eval_cycles.insert_one({
+        "name": "Avaliação 360° — 1º Semestre", "period": "2026 S1",
+        "description": "Ciclo semestral de avaliação de desempenho e potencial.",
+        "status": "ativo", "created_at": now_iso(),
+    })
 
 
 async def _seed_users(db, hash_password, mariana_id=None, carlos_id=None):

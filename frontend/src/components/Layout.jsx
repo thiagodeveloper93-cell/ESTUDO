@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, Building2, Clock, Plane, Briefcase,
-  UserCircle, LogOut, Menu, X, Sparkles,
+  UserCircle, LogOut, Menu, X, Sparkles, Receipt, Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -14,11 +14,14 @@ const adminNav = [
   { to: "/ponto", label: "Ponto & Frequência", icon: Clock },
   { to: "/ferias", label: "Férias & Ausências", icon: Plane },
   { to: "/recrutamento", label: "Recrutamento IA", icon: Briefcase, ai: true },
+  { to: "/folha", label: "Folha & Holerites", icon: Receipt },
+  { to: "/desempenho", label: "Avaliação de Desempenho", icon: Target },
 ];
 const empNav = [
   { to: "/portal", label: "Meu Painel", icon: UserCircle },
   { to: "/ponto", label: "Bater Ponto", icon: Clock },
   { to: "/ferias", label: "Minhas Férias", icon: Plane },
+  { to: "/meus-holerites", label: "Meus Holerites", icon: Receipt },
 ];
 
 export default function Layout({ children }) {

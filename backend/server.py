@@ -153,6 +153,36 @@ class Candidate(BaseModel):
     resume_text: str
 
 
+class PayslipReq(BaseModel):
+    employee_id: str
+    competencia: str  # YYYY-MM
+    bonus: float = 0
+    benefits: float = 0
+    other_discounts: float = 0
+
+
+class PayslipAllReq(BaseModel):
+    competencia: str
+
+
+class EvalCycle(BaseModel):
+    name: str
+    period: str
+    description: Optional[str] = ""
+    status: str = "ativo"  # ativo, encerrado
+
+
+class Evaluation(BaseModel):
+    cycle_id: str
+    employee_id: str
+    performance: int = 3   # 1-5
+    potential: int = 3     # 1-5
+    entrega: int = 3
+    qualidade: int = 3
+    colaboracao: int = 3
+    comments: Optional[str] = ""
+
+
 # ---------- Auth ----------
 @api.post("/auth/login")
 async def login(body: LoginReq):
@@ -467,6 +497,188 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "total_candidates": total_cand, "monthly_payroll": payroll,
         "headcount_by_department": by_dep,
     }
+
+
+# ---------- Payroll / Holerites ----------
+def calc_inss(base):
+    brackets = [(1518.00, 0.075), (2793.88, 0.09), (4190.83, 0.12), (8157.41, 0.14)]
+    prev = 0.0
+    inss = 0.0
+    for limit, rate in brackets:
+        if base > prev:
+            inss += (min(base, limit) - prev) * rate
+            prev = limit
+        else:
+            break
+    return round(inss, 2)
+
+
+def calc_irrf(base_after_inss):
+    table = [
+        (2428.80, 0.0, 0.0),
+        (2826.65, 0.075, 182.16),
+        (3751.05, 0.15, 394.16),
+        (4664.68, 0.225, 675.49),
+        (float("inf"), 0.275, 908.73),
+    ]
+    for limit, rate, ded in table:
+        if base_after_inss <= limit:
+            return round(max(0.0, base_after_inss * rate - ded), 2)
+    return 0.0
+
+
+def build_payslip(emp, competencia, bonus=0.0, benefits=0.0, other_discounts=0.0):
+    base = float(emp.get("salary", 0))
+    inss = calc_inss(base)
+    irrf = calc_irrf(base - inss)
+    fgts = round(base * 0.08, 2)
+    earnings = [{"label": "Salário base", "value": base}]
+    if bonus:
+        earnings.append({"label": "Bônus / Comissão", "value": round(bonus, 2)})
+    if benefits:
+        earnings.append({"label": "Benefícios", "value": round(benefits, 2)})
+    deductions = [
+        {"label": "INSS", "value": inss},
+        {"label": "IRRF", "value": irrf},
+    ]
+    if other_discounts:
+        deductions.append({"label": "Outros descontos", "value": round(other_discounts, 2)})
+    gross = round(sum(e["value"] for e in earnings), 2)
+    total_ded = round(sum(d["value"] for d in deductions), 2)
+    net = round(gross - total_ded, 2)
+    return {
+        "employee_id": str(emp["_id"]), "employee_name": emp["name"],
+        "competencia": competencia, "earnings": earnings, "deductions": deductions,
+        "gross": gross, "total_deductions": total_ded, "net": net, "fgts": fgts,
+        "created_at": now_iso(),
+    }
+
+
+@api.get("/payslips")
+async def list_payslips(employee_id: Optional[str] = None, competencia: Optional[str] = None,
+                        user: dict = Depends(get_current_user)):
+    q = {}
+    if employee_id:
+        q["employee_id"] = employee_id
+    if competencia:
+        q["competencia"] = competencia
+    docs = await db.payslips.find(q).sort("competencia", -1).to_list(2000)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+@api.post("/payslips/generate")
+async def generate_payslip(body: PayslipReq, user: dict = Depends(require_admin)):
+    emp = await db.employees.find_one({"_id": ObjectId(body.employee_id)})
+    if not emp:
+        raise HTTPException(404, "Colaborador não encontrado")
+    doc = build_payslip(emp, body.competencia, body.bonus, body.benefits, body.other_discounts)
+    await db.payslips.delete_one({"employee_id": body.employee_id, "competencia": body.competencia})
+    r = await db.payslips.insert_one(doc)
+    doc["_id"] = str(r.inserted_id)
+    return doc
+
+
+@api.post("/payslips/generate-all")
+async def generate_all(body: PayslipAllReq, user: dict = Depends(require_admin)):
+    emps = await db.employees.find({"status": {"$ne": "desligado"}}).to_list(1000)
+    count = 0
+    for emp in emps:
+        doc = build_payslip(emp, body.competencia)
+        await db.payslips.delete_one({"employee_id": str(emp["_id"]), "competencia": body.competencia})
+        await db.payslips.insert_one(doc)
+        count += 1
+    return {"generated": count, "competencia": body.competencia}
+
+
+@api.delete("/payslips/{pid}")
+async def delete_payslip(pid: str, user: dict = Depends(require_admin)):
+    await db.payslips.delete_one({"_id": ObjectId(pid)})
+    return {"ok": True}
+
+
+# ---------- Performance / Avaliação ----------
+def nine_box(perf, pot):
+    p = "baixo" if perf <= 2 else ("médio" if perf == 3 else "alto")
+    t = "baixo" if pot <= 2 else ("médio" if pot == 3 else "alto")
+    labels = {
+        ("alto", "alto"): "Estrela",
+        ("alto", "médio"): "Alto desempenho",
+        ("alto", "baixo"): "Especialista",
+        ("médio", "alto"): "Forte potencial",
+        ("médio", "médio"): "Mantenedor",
+        ("médio", "baixo"): "Profissional eficaz",
+        ("baixo", "alto"): "Enigma",
+        ("baixo", "médio"): "Em desenvolvimento",
+        ("baixo", "baixo"): "Risco / atenção",
+    }
+    return {"perf_level": p, "pot_level": t, "label": labels[(t, p)]}
+
+
+@api.get("/eval-cycles")
+async def list_cycles(user: dict = Depends(get_current_user)):
+    docs = await db.eval_cycles.find().sort("created_at", -1).to_list(200)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        d["eval_count"] = await db.evaluations.count_documents({"cycle_id": d["_id"]})
+    return docs
+
+
+@api.post("/eval-cycles")
+async def create_cycle(body: EvalCycle, user: dict = Depends(require_admin)):
+    doc = body.model_dump()
+    doc["created_at"] = now_iso()
+    r = await db.eval_cycles.insert_one(doc)
+    doc["_id"] = str(r.inserted_id)
+    return doc
+
+
+@api.put("/eval-cycles/{cid}")
+async def update_cycle(cid: str, body: EvalCycle, user: dict = Depends(require_admin)):
+    await db.eval_cycles.update_one({"_id": ObjectId(cid)}, {"$set": body.model_dump()})
+    return {"ok": True}
+
+
+@api.delete("/eval-cycles/{cid}")
+async def delete_cycle(cid: str, user: dict = Depends(require_admin)):
+    await db.eval_cycles.delete_one({"_id": ObjectId(cid)})
+    await db.evaluations.delete_many({"cycle_id": cid})
+    return {"ok": True}
+
+
+@api.get("/evaluations")
+async def list_evaluations(cycle_id: Optional[str] = None, employee_id: Optional[str] = None,
+                           user: dict = Depends(get_current_user)):
+    q = {}
+    if cycle_id:
+        q["cycle_id"] = cycle_id
+    if employee_id:
+        q["employee_id"] = employee_id
+    docs = await db.evaluations.find(q).sort("created_at", -1).to_list(2000)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+@api.post("/evaluations")
+async def create_evaluation(body: Evaluation, user: dict = Depends(require_admin)):
+    emp = await db.employees.find_one({"_id": ObjectId(body.employee_id)})
+    doc = body.model_dump()
+    doc["employee_name"] = emp["name"] if emp else ""
+    doc["overall"] = round((body.entrega + body.qualidade + body.colaboracao) / 3, 2)
+    doc["nine_box"] = nine_box(body.performance, body.potential)
+    doc["created_at"] = now_iso()
+    await db.evaluations.delete_one({"cycle_id": body.cycle_id, "employee_id": body.employee_id})
+    r = await db.evaluations.insert_one(doc)
+    doc["_id"] = str(r.inserted_id)
+    return doc
+
+
+@api.delete("/evaluations/{eid}")
+async def delete_evaluation(eid: str, user: dict = Depends(require_admin)):
+    await db.evaluations.delete_one({"_id": ObjectId(eid)})
+    return {"ok": True}
 
 
 app.include_router(api)
