@@ -27,6 +27,7 @@ export default function Recruitment() {
   const [jobOpen, setJobOpen] = useState(false);
   const [candOpen, setCandOpen] = useState(false);
   const [screening, setScreening] = useState(false);
+  const [summarizing, setSummarizing] = useState(null);
   const [job, setJob] = useState({ title: "", department_id: "", description: "", requirements: "", location: "Remoto", status: "aberta" });
   const [cand, setCand] = useState({ name: "", email: "", phone: "", resume_text: "" });
 
@@ -65,6 +66,13 @@ export default function Recruitment() {
     toast.info("Reprocessando triagem…");
     await api.post(`/candidates/${id}/rescreen`);
     selectJob(active);
+  };
+
+  const aiSummary = async (id) => {
+    setSummarizing(id);
+    try { await api.post(`/candidates/${id}/ai-summary`); toast.success("Resumo gerado pela IA"); await selectJob(active); }
+    catch (e) { toast.error(apiError(e)); }
+    finally { setSummarizing(null); }
   };
 
   const delJob = async (id) => {
@@ -143,6 +151,32 @@ export default function Recruitment() {
                     <div className="mt-2 rounded-lg bg-violet-50/60 p-3 text-xs text-slate-700 dark:bg-violet-950/20 dark:text-slate-300">
                       <Sparkles className="mr-1 inline h-3 w-3 text-violet-500" /> {c.ai_justification}
                     </div>
+                    {c.ai_summary ? (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                          <div className="mb-1 font-semibold text-emerald-700">Pontos fortes</div>
+                          <ul className="list-disc space-y-0.5 pl-4 text-slate-700 dark:text-slate-300">
+                            {c.ai_summary.pontos_fortes?.map((p, i) => <li key={i}>{p}</li>)}
+                          </ul>
+                        </div>
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/20">
+                          <div className="mb-1 font-semibold text-amber-700">Lacunas</div>
+                          <ul className="list-disc space-y-0.5 pl-4 text-slate-700 dark:text-slate-300">
+                            {c.ai_summary.lacunas?.map((l, i) => <li key={i}>{l}</li>)}
+                          </ul>
+                        </div>
+                        {c.ai_summary.recomendacao && (
+                          <div className="sm:col-span-2 rounded-lg bg-slate-100 p-2 text-xs italic text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            {c.ai_summary.recomendacao}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => aiSummary(c._id)} disabled={summarizing === c._id}
+                        data-testid={`ai-summary-${c._id}`} className="mt-2 border-violet-200 text-violet-700 hover:bg-violet-50">
+                        <Sparkles className="mr-2 h-3.5 w-3.5" /> {summarizing === c._id ? "Gerando resumo…" : "Resumo IA (pontos fortes & lacunas)"}
+                      </Button>
+                    )}
                   </div>
                 ))}
                 {candidates.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">Nenhum candidato ainda. Envie um currículo para a triagem por IA.</div>}

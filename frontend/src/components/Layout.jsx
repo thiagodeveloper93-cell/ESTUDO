@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import {
   LayoutDashboard, Users, Building2, Clock, Plane, Briefcase,
-  UserCircle, LogOut, Menu, X, Sparkles, Receipt, Target,
+  UserCircle, LogOut, Menu, X, Sparkles, Receipt, Target, Sun, Moon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -26,6 +27,7 @@ const empNav = [
 
 export default function Layout({ children }) {
   const { user, logout, isAdmin } = useAuth();
+  const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
   const nav = isAdmin ? adminNav : empNav;
   const navigate = useNavigate();
@@ -107,6 +109,9 @@ export default function Layout({ children }) {
             Bem-vindo(a), <span className="font-semibold text-foreground">{user?.name?.split(" ")[0]}</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <Button size="icon" variant="ghost" onClick={toggle} data-testid="theme-toggle" aria-label="Alternar tema">
+              {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             {isAdmin && (
               <Button size="sm" variant="outline" onClick={() => navigate("/portal")} data-testid="switch-portal-btn" className="hidden sm:flex">
                 <UserCircle className="mr-2 h-4 w-4" /> Ver como Colaborador

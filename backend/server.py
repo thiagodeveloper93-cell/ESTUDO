@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field, ConfigDict, BeforeValidator
 
 from typesafe_sdk import Score, Noul, TypeSafeAPIError, TypeSafeError
 from jev import get_jev_client
+from emergentintegrations.llm.chat import LlmChat, UserMessage
+import httpx
 
 # ---------- DB ----------
 mongo_url = os.environ['MONGO_URL']
@@ -181,6 +183,20 @@ class Evaluation(BaseModel):
     qualidade: int = 3
     colaboracao: int = 3
     comments: Optional[str] = ""
+
+
+class Goal(BaseModel):
+    cycle_id: str
+    employee_id: str
+    title: str
+    description: Optional[str] = ""
+    progress: int = 0  # 0-100
+    status: str = "em_andamento"  # em_andamento, concluida, atrasada
+
+
+class GoalProgress(BaseModel):
+    progress: int
+    status: Optional[str] = None
 
 
 # ---------- Auth ----------
@@ -479,6 +495,45 @@ async def rescreen(cid: str, user: dict = Depends(require_admin)):
     return cand
 
 
+@api.post("/candidates/{cid}/ai-summary")
+async def ai_summary(cid: str, user: dict = Depends(require_admin)):
+    cand = await db.candidates.find_one({"_id": ObjectId(cid)})
+    if not cand:
+        raise HTTPException(404, "Candidato não encontrado")
+    job = await db.jobs.find_one({"_id": ObjectId(cand["job_id"])})
+    prompt = (
+        "Você é um especialista em recrutamento. Analise o currículo do candidato em relação à vaga "
+        "e responda ESTRITAMENTE em JSON válido (sem markdown, sem cercas de código) no formato:\n"
+        '{"pontos_fortes": ["..."], "lacunas": ["..."], "recomendacao": "..."}\n'
+        "Use português do Brasil. Cada lista com 2 a 4 itens curtos e objetivos.\n\n"
+        f"VAGA: {job['title']}\nDESCRIÇÃO: {job.get('description','')}\nREQUISITOS: {job.get('requirements','')}\n\n"
+        f"CANDIDATO: {cand['name']}\nCURRÍCULO:\n{cand['resume_text']}"
+    )
+    try:
+        chat = LlmChat(
+            api_key=os.environ["EMERGENT_LLM_KEY"],
+            session_id=f"cand-summary-{cid}",
+            system_message="Você analisa currículos e responde apenas em JSON válido.",
+        ).with_model("openai", "gpt-5.4")
+        resp = await chat.send_message(UserMessage(text=prompt))
+        text = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))
+        import json, re
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        data = json.loads(m.group(0) if m else text)
+        summary = {
+            "pontos_fortes": data.get("pontos_fortes", []),
+            "lacunas": data.get("lacunas", []),
+            "recomendacao": data.get("recomendacao", ""),
+        }
+    except Exception as exc:
+        logger.warning("AI summary failed: %s", exc)
+        raise HTTPException(503, "Não foi possível gerar o resumo por IA agora. Tente novamente.")
+    await db.candidates.update_one({"_id": ObjectId(cid)}, {"$set": {"ai_summary": summary}})
+    cand["ai_summary"] = summary
+    cand["_id"] = str(cand["_id"])
+    return cand
+
+
 # ---------- Dashboard ----------
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(get_current_user)):
@@ -604,6 +659,55 @@ async def delete_payslip(pid: str, user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+def payslip_html(p):
+    rows_e = "".join(f"<tr><td>{e['label']}</td><td style='text-align:right'>R$ {e['value']:,.2f}</td></tr>" for e in p["earnings"])
+    rows_d = "".join(f"<tr><td>{d['label']}</td><td style='text-align:right;color:#dc2626'>- R$ {d['value']:,.2f}</td></tr>" for d in p["deductions"])
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
+      <h2 style="margin:0;color:#2563eb">Construa RH</h2>
+      <p style="margin:2px 0 14px;color:#64748b;font-size:13px">Demonstrativo de Pagamento — {p['competencia']}</p>
+      <p style="font-weight:bold">{p['employee_name']}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr><td colspan=2 style="color:#059669;font-weight:bold;padding-top:8px">Proventos</td></tr>{rows_e}
+        <tr><td colspan=2 style="color:#dc2626;font-weight:bold;padding-top:8px">Descontos</td></tr>{rows_d}
+      </table>
+      <div style="margin-top:14px;padding:12px;background:#eff6ff;border-radius:8px;display:flex;justify-content:space-between">
+        <span style="font-weight:bold">Líquido a receber</span>
+        <span style="font-weight:bold;color:#2563eb">R$ {p['net']:,.2f}</span>
+      </div>
+    </div>"""
+
+
+@api.post("/payslips/{pid}/email")
+async def email_payslip(pid: str, user: dict = Depends(require_admin)):
+    p = await db.payslips.find_one({"_id": ObjectId(pid)})
+    if not p:
+        raise HTTPException(404, "Holerite não encontrado")
+    emp = await db.employees.find_one({"_id": ObjectId(p["employee_id"])})
+    to_email = emp.get("email") if emp else None
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        return {"sent": False, "configured": False,
+                "message": "Envio de e-mail ainda não configurado. Conecte uma chave Resend (RESEND_API_KEY) para ativar."}
+    if not to_email:
+        raise HTTPException(400, "Colaborador sem e-mail cadastrado")
+    try:
+        async with httpx.AsyncClient(timeout=20) as cx:
+            r = await cx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"from": os.environ.get("EMAIL_FROM", "Construa RH <onboarding@resend.dev>"),
+                      "to": [to_email],
+                      "subject": f"Seu holerite — {p['competencia']}",
+                      "html": payslip_html(p)},
+            )
+        if r.status_code >= 400:
+            raise HTTPException(502, f"Falha no provedor de e-mail: {r.text[:200]}")
+        return {"sent": True, "configured": True, "to": to_email}
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Erro ao enviar e-mail: {exc}")
+
+
 # ---------- Performance / Avaliação ----------
 def nine_box(perf, pot):
     p = "baixo" if perf <= 2 else ("médio" if perf == 3 else "alto")
@@ -686,6 +790,53 @@ async def create_evaluation(body: Evaluation, user: dict = Depends(require_admin
 @api.delete("/evaluations/{eid}")
 async def delete_evaluation(eid: str, user: dict = Depends(require_admin)):
     await db.evaluations.delete_one({"_id": ObjectId(eid)})
+    return {"ok": True}
+
+
+# ---------- Goals / Metas & OKRs ----------
+@api.get("/goals")
+async def list_goals(cycle_id: Optional[str] = None, employee_id: Optional[str] = None,
+                     user: dict = Depends(get_current_user)):
+    q = {}
+    if user.get("role") != "admin":
+        employee_id = user.get("employee_id")
+    if cycle_id:
+        q["cycle_id"] = cycle_id
+    if employee_id:
+        q["employee_id"] = employee_id
+    docs = await db.goals.find(q).sort("created_at", -1).to_list(2000)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+@api.post("/goals")
+async def create_goal(body: Goal, user: dict = Depends(require_admin)):
+    emp = await db.employees.find_one({"_id": ObjectId(body.employee_id)})
+    doc = body.model_dump()
+    doc["employee_name"] = emp["name"] if emp else ""
+    doc["created_at"] = now_iso()
+    r = await db.goals.insert_one(doc)
+    doc["_id"] = str(r.inserted_id)
+    return doc
+
+
+@api.put("/goals/{gid}")
+async def update_goal_progress(gid: str, body: GoalProgress, user: dict = Depends(get_current_user)):
+    goal = await db.goals.find_one({"_id": ObjectId(gid)})
+    if not goal:
+        raise HTTPException(404, "Meta não encontrada")
+    if user.get("role") != "admin" and goal.get("employee_id") != user.get("employee_id"):
+        raise HTTPException(403, "Você só pode atualizar suas próprias metas")
+    progress = max(0, min(100, body.progress))
+    status = body.status or ("concluida" if progress >= 100 else "em_andamento")
+    await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"progress": progress, "status": status}})
+    return {"ok": True, "progress": progress, "status": status}
+
+
+@api.delete("/goals/{gid}")
+async def delete_goal(gid: str, user: dict = Depends(require_admin)):
+    await db.goals.delete_one({"_id": ObjectId(gid)})
     return {"ok": True}
 
 

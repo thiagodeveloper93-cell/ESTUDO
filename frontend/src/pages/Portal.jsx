@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Clock, Plane, Mail, Phone, Calendar, Building2, Briefcase, CheckCircle2 } from "lucide-react";
+import { Clock, Plane, Mail, Phone, Calendar, Building2, Briefcase, CheckCircle2, Flag } from "lucide-react";
 
 const statusStyle = {
   pendente: "bg-amber-50 text-amber-700 border-amber-200",
@@ -22,6 +22,12 @@ export default function Portal() {
   const [dep, setDep] = useState("—");
   const [pos, setPos] = useState("—");
   const [vacations, setVacations] = useState([]);
+  const [goals, setGoals] = useState([]);
+
+  const loadGoals = async (id) => {
+    const g = await api.get("/goals", { params: { employee_id: id } });
+    setGoals(g.data);
+  };
 
   useEffect(() => {
     const id = user?.employee_id;
@@ -37,8 +43,15 @@ export default function Portal() {
       setDep(deps.data.find((d) => d._id === e.data.department_id)?.name || "—");
       setPos(positions.data.find((p) => p._id === e.data.position_id)?.title || "—");
       setVacations(v.data);
+      loadGoals(id);
     })();
   }, [user]);
+
+  const bumpGoal = async (g, delta) => {
+    const progress = Math.max(0, Math.min(100, g.progress + delta));
+    await api.put(`/goals/${g._id}`, { progress });
+    loadGoals(user.employee_id);
+  };
 
   if (!user?.employee_id)
     return (
@@ -108,6 +121,32 @@ export default function Portal() {
                 </div>
               ))}
               {vacations.length === 0 && <div className="py-4 text-center text-sm text-muted-foreground">Nenhuma solicitação ainda</div>}
+            </div>
+          </Card>
+
+          <Card className="card-anim border-slate-200 p-6 shadow-sm dark:border-slate-800">
+            <div className="mb-4 flex items-center gap-2 font-semibold"><Flag className="h-4 w-4 text-blue-600" /> Minhas Metas</div>
+            <div className="space-y-3">
+              {goals.map((g) => (
+                <div key={g._id} data-testid={`portal-goal-${g._id}`} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-[140px] flex-1">
+                      <div className="text-sm font-semibold">{g.title}</div>
+                      {g.description && <div className="text-xs text-muted-foreground">{g.description}</div>}
+                    </div>
+                    <Badge variant="outline" className={g.status === "concluida" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>
+                      {g.status === "concluida" ? "Concluída" : "Em andamento"}
+                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => bumpGoal(g, -10)} data-testid={`portal-goal-minus-${g._id}`} className="h-7 w-7">−</Button>
+                      <span className="w-10 text-center text-sm font-bold">{g.progress}%</span>
+                      <Button size="icon" variant="ghost" onClick={() => bumpGoal(g, 10)} data-testid={`portal-goal-plus-${g._id}`} className="h-7 w-7">+</Button>
+                    </div>
+                  </div>
+                  <Progress value={g.progress} className="mt-2 h-1.5" />
+                </div>
+              ))}
+              {goals.length === 0 && <div className="py-4 text-center text-sm text-muted-foreground">Nenhuma meta atribuída ainda</div>}
             </div>
           </Card>
         </div>

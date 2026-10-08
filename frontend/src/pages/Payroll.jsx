@@ -55,6 +55,14 @@ export default function Payroll() {
 
   const remove = async (id) => { if (!window.confirm("Excluir holerite?")) return; await api.delete(`/payslips/${id}`); toast.success("Excluído"); load(); };
 
+  const sendEmail = async (p) => {
+    try {
+      const r = await api.post(`/payslips/${p._id}/email`);
+      if (r.data.sent) toast.success(`Holerite enviado para ${r.data.to}`);
+      else toast.info(r.data.message);
+    } catch (e) { toast.error(apiError(e)); }
+  };
+
   return (
     <div>
       <PageHeader
@@ -124,12 +132,12 @@ export default function Payroll() {
         </DialogContent>
       </Dialog>
 
-      <PayslipView payslip={view} onClose={() => setView(null)} />
+      <PayslipView payslip={view} onClose={() => setView(null)} onEmail={sendEmail} />
     </div>
   );
 }
 
-export function PayslipView({ payslip, onClose }) {
+export function PayslipView({ payslip, onClose, onEmail }) {
   if (!payslip) return null;
   const print = () => window.print();
   return (
@@ -161,7 +169,10 @@ export function PayslipView({ payslip, onClose }) {
             <span className="font-mono text-lg font-extrabold text-blue-600">{brl(payslip.net)}</span>
           </div>
         </div>
-        <DialogFooter><Button onClick={print} data-testid="print-payslip" className="bg-blue-600 hover:bg-blue-700"><Download className="mr-2 h-4 w-4" /> Imprimir / PDF</Button></DialogFooter>
+        <DialogFooter>
+          {onEmail && <Button variant="outline" onClick={() => onEmail(payslip)} data-testid="email-payslip">Enviar por e-mail</Button>}
+          <Button onClick={print} data-testid="print-payslip" className="bg-blue-600 hover:bg-blue-700"><Download className="mr-2 h-4 w-4" /> Imprimir / PDF</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

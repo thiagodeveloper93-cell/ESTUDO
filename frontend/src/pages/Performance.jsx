@@ -8,9 +8,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Target, Trash2, Star, Sparkles } from "lucide-react";
+import { Plus, Target, Trash2, Star, Sparkles, Flag } from "lucide-react";
 
 const scale = [1, 2, 3, 4, 5];
 
@@ -46,6 +47,9 @@ export default function Performance() {
   const [evalOpen, setEvalOpen] = useState(false);
   const [cycle, setCycle] = useState({ name: "", period: "", description: "" });
   const [form, setForm] = useState({ employee_id: "", performance: 3, potential: 3, entrega: 3, qualidade: 3, colaboracao: 3, comments: "" });
+  const [goals, setGoals] = useState([]);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goal, setGoal] = useState({ employee_id: "", title: "", description: "", progress: 0 });
 
   const load = async () => {
     const [c, e] = await Promise.all([api.get("/eval-cycles"), api.get("/employees")]);
@@ -56,8 +60,11 @@ export default function Performance() {
 
   const selectCycle = async (c) => {
     setActive(c);
-    const r = await api.get("/evaluations", { params: { cycle_id: c._id } });
-    setEvals(r.data);
+    const [r, g] = await Promise.all([
+      api.get("/evaluations", { params: { cycle_id: c._id } }),
+      api.get("/goals", { params: { cycle_id: c._id } }),
+    ]);
+    setEvals(r.data); setGoals(g.data);
   };
 
   const saveCycle = async () => {
@@ -78,6 +85,22 @@ export default function Performance() {
 
   const delCycle = async (id) => { if (!window.confirm("Excluir ciclo e avaliações?")) return; await api.delete(`/eval-cycles/${id}`); toast.success("Excluído"); setActive(null); setEvals([]); load(); };
   const delEval = async (id) => { await api.delete(`/evaluations/${id}`); toast.success("Removida"); selectCycle(active); };
+
+  const saveGoal = async () => {
+    if (!goal.employee_id || !goal.title) return toast.error("Informe o colaborador e o título da meta");
+    try {
+      await api.post("/goals", { ...goal, cycle_id: active._id, progress: Number(goal.progress) });
+      toast.success("Meta criada"); setGoalOpen(false);
+      setGoal({ employee_id: "", title: "", description: "", progress: 0 });
+      selectCycle(active);
+    } catch (e) { toast.error(apiError(e)); }
+  };
+  const bumpGoal = async (g, delta) => {
+    const progress = Math.max(0, Math.min(100, g.progress + delta));
+    await api.put(`/goals/${g._id}`, { progress });
+    selectCycle(active);
+  };
+  const delGoal = async (id) => { await api.delete(`/goals/${id}`); toast.success("Meta removida"); selectCycle(active); };
 
   const cellEvals = (perf, pot) => evals.filter((e) => e.nine_box?.perf_level === perf && e.nine_box?.pot_level === pot);
 
@@ -146,6 +169,34 @@ export default function Performance() {
                 ))}
                 {evals.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhuma avaliação neste ciclo</Card>}
               </div>
+
+              <div className="mt-6 mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold"><Flag className="h-4 w-4 text-blue-600" /> Metas & OKRs do ciclo</div>
+                <Button size="sm" variant="outline" onClick={() => setGoalOpen(true)} data-testid="new-goal-btn"><Plus className="mr-2 h-4 w-4" /> Nova Meta</Button>
+              </div>
+              <div className="space-y-3">
+                {goals.map((g) => (
+                  <Card key={g._id} data-testid={`goal-${g._id}`} className="border-slate-200 p-4 shadow-sm dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-[160px] flex-1">
+                        <div className="font-semibold">{g.title}</div>
+                        <div className="text-xs text-muted-foreground">{g.employee_name} {g.description ? `· ${g.description}` : ""}</div>
+                      </div>
+                      <Badge variant="outline" className={g.status === "concluida" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>
+                        {g.status === "concluida" ? "Concluída" : "Em andamento"}
+                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => bumpGoal(g, -10)} data-testid={`goal-minus-${g._id}`} className="h-7 w-7">−</Button>
+                        <span className="w-10 text-center text-sm font-bold">{g.progress}%</span>
+                        <Button size="icon" variant="ghost" onClick={() => bumpGoal(g, 10)} data-testid={`goal-plus-${g._id}`} className="h-7 w-7">+</Button>
+                        <Button size="icon" variant="ghost" onClick={() => delGoal(g._id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                      </div>
+                    </div>
+                    <Progress value={g.progress} className="mt-3 h-1.5" />
+                  </Card>
+                ))}
+                {goals.length === 0 && <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma meta definida para este ciclo</Card>}
+              </div>
             </>
           ) : (
             <Card className="p-10 text-center text-muted-foreground">Selecione ou crie um ciclo</Card>
@@ -186,6 +237,25 @@ export default function Performance() {
             <div><Label>Comentários</Label><Textarea value={form.comments} onChange={(e) => setForm({ ...form, comments: e.target.value })} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setEvalOpen(false)}>Cancelar</Button><Button onClick={saveEval} data-testid="save-eval" className="bg-blue-600 hover:bg-blue-700">Salvar avaliação</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={goalOpen} onOpenChange={setGoalOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Nova Meta / OKR</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Colaborador</Label>
+              <Select value={goal.employee_id} onValueChange={(v) => setGoal({ ...goal, employee_id: v })}>
+                <SelectTrigger data-testid="goal-employee"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{employees.map((e) => <SelectItem key={e._id} value={e._id}>{e.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Título da meta</Label><Input value={goal.title} onChange={(e) => setGoal({ ...goal, title: e.target.value })} data-testid="goal-title" placeholder="Ex: Aumentar NPS para 70" /></div>
+            <div><Label>Descrição</Label><Textarea value={goal.description} onChange={(e) => setGoal({ ...goal, description: e.target.value })} /></div>
+            <div><Label>Progresso inicial (%)</Label><Input type="number" min={0} max={100} value={goal.progress} onChange={(e) => setGoal({ ...goal, progress: e.target.value })} /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setGoalOpen(false)}>Cancelar</Button><Button onClick={saveGoal} data-testid="save-goal" className="bg-blue-600 hover:bg-blue-700">Criar meta</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
