@@ -246,3 +246,160 @@ class TestRecruitment:
             "job_id": jobs[0]["_id"], "name": "x", "email": "x@x.com", "resume_text": "x"
         }, timeout=30)
         assert r.status_code == 403
+
+
+# ------- Phase 2: Payroll / Holerites -------
+COMPETENCIA = "2026-06"
+
+class TestPayroll:
+    def test_generate_all(self, admin_h):
+        r = requests.post(f"{API}/payslips/generate-all", headers=admin_h,
+                          json={"competencia": COMPETENCIA}, timeout=60)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["competencia"] == COMPETENCIA
+        assert d["generated"] >= 8
+
+    def test_list_filter(self, admin_h):
+        r = requests.get(f"{API}/payslips?competencia={COMPETENCIA}", headers=admin_h, timeout=30)
+        assert r.status_code == 200
+        lst = r.json()
+        assert len(lst) >= 8
+        for p in lst:
+            assert p["competencia"] == COMPETENCIA
+            assert p["gross"] > 0
+            assert p["net"] <= p["gross"]
+            assert p["fgts"] == round(p["earnings"][0]["value"] * 0.08, 2)
+            labels = [d["label"] for d in p["deductions"]]
+            assert "INSS" in labels and "IRRF" in labels
+
+    def test_inss_irrf_values(self, admin_h):
+        # Verify specific calculation on highest-salary employee
+        emps = requests.get(f"{API}/employees", headers=admin_h, timeout=30).json()
+        emp = max(emps, key=lambda e: e.get("salary", 0))
+        base = emp["salary"]
+        # Compute expected INSS progressively
+        def exp_inss(b):
+            brackets = [(1518.00,0.075),(2793.88,0.09),(4190.83,0.12),(8157.41,0.14)]
+            prev,i=0.0,0.0
+            for lim,rate in brackets:
+                if b>prev:
+                    i+=(min(b,lim)-prev)*rate; prev=lim
+                else: break
+            return round(i,2)
+        expected_inss = exp_inss(base)
+        pay = requests.get(f"{API}/payslips?employee_id={emp['_id']}&competencia={COMPETENCIA}",
+                           headers=admin_h, timeout=30).json()
+        assert pay, "payslip missing after generate-all"
+        inss = next(d["value"] for d in pay[0]["deductions"] if d["label"] == "INSS")
+        assert abs(inss - expected_inss) < 0.05
+
+    def test_generate_single_with_bonus(self, admin_h):
+        emps = requests.get(f"{API}/employees", headers=admin_h, timeout=30).json()
+        eid = emps[0]["_id"]
+        r = requests.post(f"{API}/payslips/generate", headers=admin_h,
+                          json={"employee_id": eid, "competencia": "2026-07",
+                                "bonus": 500, "benefits": 200, "other_discounts": 100}, timeout=30)
+        assert r.status_code == 200
+        d = r.json()
+        labels_e = [e["label"] for e in d["earnings"]]
+        labels_d = [x["label"] for x in d["deductions"]]
+        assert "Bônus / Comissão" in labels_e
+        assert "Benefícios" in labels_e
+        assert "Outros descontos" in labels_d
+        # idempotency: generate again
+        r2 = requests.post(f"{API}/payslips/generate", headers=admin_h,
+                           json={"employee_id": eid, "competencia": "2026-07",
+                                 "bonus": 500, "benefits": 200, "other_discounts": 100}, timeout=30)
+        assert r2.status_code == 200
+        lst = requests.get(f"{API}/payslips?employee_id={eid}&competencia=2026-07",
+                           headers=admin_h, timeout=30).json()
+        assert len(lst) == 1, "generate should be idempotent per employee+competencia"
+        # delete
+        pid = lst[0]["_id"]
+        rd = requests.delete(f"{API}/payslips/{pid}", headers=admin_h, timeout=30)
+        assert rd.status_code == 200
+
+    def test_employee_cannot_generate(self, emp_h):
+        r = requests.post(f"{API}/payslips/generate", headers=emp_h,
+                          json={"employee_id": "x", "competencia": COMPETENCIA}, timeout=30)
+        assert r.status_code == 403
+
+    def test_employee_sees_only_own(self, emp_h, emp_token):
+        me = requests.get(f"{API}/auth/me", headers=emp_h, timeout=30).json()
+        eid = me.get("employee_id")
+        assert eid
+        r = requests.get(f"{API}/payslips?employee_id={eid}", headers=emp_h, timeout=30)
+        assert r.status_code == 200
+        lst = r.json()
+        assert len(lst) >= 1
+        for p in lst:
+            assert p["employee_id"] == eid
+
+
+# ------- Phase 2: Performance / Nine Box -------
+class TestPerformance:
+    def test_seeded_cycle(self, admin_h):
+        r = requests.get(f"{API}/eval-cycles", headers=admin_h, timeout=30)
+        assert r.status_code == 200
+        cycles = r.json()
+        assert len(cycles) >= 1
+        assert any("360" in c["name"] or "Avalia" in c["name"] for c in cycles)
+
+    def test_create_cycle_and_eval(self, admin_h):
+        r = requests.post(f"{API}/eval-cycles", headers=admin_h,
+                          json={"name": "TEST_Ciclo", "period": "2026-S1",
+                                "description": "teste", "status": "ativo"}, timeout=30)
+        assert r.status_code == 200
+        cid = r.json()["_id"]
+        try:
+            emps = requests.get(f"{API}/employees", headers=admin_h, timeout=30).json()
+            eid = emps[0]["_id"]
+            payload = {"cycle_id": cid, "employee_id": eid,
+                       "performance": 5, "potential": 5,
+                       "entrega": 4, "qualidade": 5, "colaboracao": 3,
+                       "comments": "ótimo"}
+            r = requests.post(f"{API}/evaluations", headers=admin_h, json=payload, timeout=30)
+            assert r.status_code == 200
+            d = r.json()
+            assert d["overall"] == round((4+5+3)/3, 2)
+            assert d["nine_box"]["label"] == "Estrela"
+            assert d["employee_name"] == emps[0]["name"]
+
+            # Low perf+pot -> Risco
+            r2 = requests.post(f"{API}/evaluations", headers=admin_h, json={
+                "cycle_id": cid, "employee_id": emps[1]["_id"],
+                "performance": 1, "potential": 1,
+                "entrega": 1, "qualidade": 2, "colaboracao": 2}, timeout=30)
+            assert r2.json()["nine_box"]["label"] == "Risco / atenção"
+
+            # filter list by cycle
+            lst = requests.get(f"{API}/evaluations?cycle_id={cid}", headers=admin_h, timeout=30).json()
+            assert len(lst) == 2
+            for e in lst:
+                assert e["cycle_id"] == cid
+
+            # idempotency: same employee+cycle replaces
+            r3 = requests.post(f"{API}/evaluations", headers=admin_h, json=payload, timeout=30)
+            assert r3.status_code == 200
+            lst2 = requests.get(f"{API}/evaluations?cycle_id={cid}", headers=admin_h, timeout=30).json()
+            assert len(lst2) == 2
+
+            # delete eval
+            eid_eval = r3.json()["_id"]
+            rd = requests.delete(f"{API}/evaluations/{eid_eval}", headers=admin_h, timeout=30)
+            assert rd.status_code == 200
+        finally:
+            requests.delete(f"{API}/eval-cycles/{cid}", headers=admin_h, timeout=30)
+
+    def test_employee_cannot_evaluate(self, emp_h, admin_h):
+        cycles = requests.get(f"{API}/eval-cycles", headers=admin_h, timeout=30).json()
+        emps = requests.get(f"{API}/employees", headers=admin_h, timeout=30).json()
+        r = requests.post(f"{API}/evaluations", headers=emp_h, json={
+            "cycle_id": cycles[0]["_id"], "employee_id": emps[0]["_id"]}, timeout=30)
+        assert r.status_code == 403
+
+    def test_employee_cannot_create_cycle(self, emp_h):
+        r = requests.post(f"{API}/eval-cycles", headers=emp_h,
+                          json={"name": "x", "period": "x"}, timeout=30)
+        assert r.status_code == 403

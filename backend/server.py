@@ -303,6 +303,8 @@ async def delete_employee(emp_id: str, user: dict = Depends(require_admin)):
 @api.get("/attendance")
 async def list_attendance(employee_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     q = {}
+    if user.get("role") != "admin":
+        employee_id = user.get("employee_id")
     if employee_id:
         q["employee_id"] = employee_id
     docs = await db.attendance.find(q).sort("timestamp", -1).to_list(1000)
@@ -325,6 +327,8 @@ async def punch(body: AttendanceReq, user: dict = Depends(get_current_user)):
 async def list_vacations(employee_id: Optional[str] = None, status: Optional[str] = None,
                          user: dict = Depends(get_current_user)):
     q = {}
+    if user.get("role") != "admin":
+        employee_id = user.get("employee_id")
     if employee_id:
         q["employee_id"] = employee_id
     if status:
@@ -558,6 +562,8 @@ def build_payslip(emp, competencia, bonus=0.0, benefits=0.0, other_discounts=0.0
 async def list_payslips(employee_id: Optional[str] = None, competencia: Optional[str] = None,
                         user: dict = Depends(get_current_user)):
     q = {}
+    if user.get("role") != "admin":
+        employee_id = user.get("employee_id")
     if employee_id:
         q["employee_id"] = employee_id
     if competencia:
@@ -651,6 +657,8 @@ async def delete_cycle(cid: str, user: dict = Depends(require_admin)):
 async def list_evaluations(cycle_id: Optional[str] = None, employee_id: Optional[str] = None,
                            user: dict = Depends(get_current_user)):
     q = {}
+    if user.get("role") != "admin":
+        employee_id = user.get("employee_id")
     if cycle_id:
         q["cycle_id"] = cycle_id
     if employee_id:

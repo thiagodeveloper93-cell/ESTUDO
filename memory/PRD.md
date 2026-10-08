@@ -26,8 +26,14 @@ Role-based login, HR dashboard KPIs, Employees CRUD + filters, Departments & Pos
 - Employee self-service portal.
 - Realistic Brazilian seed data. Tested: 23/23 backend + all frontend flows pass.
 
+## Implemented — Fase 2 (2026-10-08)
+- Folha & Holerites: geração individual e em massa por competência, cálculo de INSS/IRRF progressivos + FGTS, holerite em modal com impressão/PDF, exclusão. Idempotente por colaborador+competência.
+- Avaliação de Desempenho: ciclos de avaliação, notas (entrega/qualidade/colaboração + desempenho/potencial), nota geral e matriz Nine Box com rótulos.
+- Portal do colaborador: página "Meus Holerites".
+- Segurança: endpoints de listagem (payslips, evaluations, attendance, vacations) escopados por employee_id para usuários com papel employee.
+- Testado: 33/33 backend + todos os fluxos de frontend da Fase 2 aprovados.
+
 ## Backlog (future)
-- P1: Folha de pagamento / holerites (payroll, payslip generation + download).
-- P1: Avaliação de desempenho (performance cycles, scores, 9-box).
 - P2: Dark mode toggle, pagination on lists, Cmd+K universal search.
-- P2: Brute-force protection + explicit CORS origins for prod.
+- P2: Brute-force protection + explicit CORS origins for prod; migrate @app.on_event to lifespan.
+- P3: Resumo por IA dos pontos fortes/lacunas de cada currículo.
