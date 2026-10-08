@@ -1,0 +1,123 @@
+{
+  "project_identity": {
+    "name": "Construa RH",
+    "description": "Plataforma completa de Gestão de Recursos Humanos e Portal do Colaborador em Português (Brasil)",
+    "archetype": "Swiss High-Contrast & Soft Utility (Precisa, calorosa, altamente legível e moderna)",
+    "language": "pt-BR",
+    "target_audience": "Equipes de RH, Gestores de Pessoas e Colaboradores de empresas brasileiras"
+  },
+  "typography": {
+    "heading_font": "Plus Jakarta Sans, sans-serif",
+    "body_font": "DM Sans, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "hierarchy": {
+      "h1": "text-3xl md:text-4xl font-extrabold tracking-tight",
+      "h2": "text-xl md:text-2xl font-bold tracking-tight",
+      "h3": "text-lg md:text-xl font-semibold",
+      "h4_card_title": "text-base font-semibold tracking-tight",
+      "body": "text-sm text-slate-700 dark:text-slate-300 leading-relaxed",
+      "small_label": "text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
+    },
+    "rules": [
+      "NÃO usar 'Inter' em títulos principais ou secundários. Usar 'Plus Jakarta Sans' para os cabeçalhos.",
+      "Manter contraste rigoroso de APCA/WCAG em todos os rótulos de dados e status.",
+      "Formatos de valores numéricos e financeiros no padrão brasileiro: R$ 8.500,00, 160h/mês, etc."
+    ]
+  },
+  "colors": {
+    "theme_mode": "Modo claro como padrão com alternância fluida para Modo Escuro (Dark Mode Toggle no header)",
+    "palette": {
+      "background_light": "#F8FAFC",
+      "background_dark": "#0F172A",
+      "card_light": "#FFFFFF",
+      "card_dark": "#1E293B",
+      "primary_brand": "#2563EB",
+      "primary_brand_hover": "#1D4ED8",
+      "sidebar_bg": "#0F172A",
+      "sidebar_fg": "#F8FAFC",
+      "accent_ai": "#7C3AED",
+      "accent_ai_light": "#F3E8FF",
+      "status_success": {
+        "bg": "#ECFDF5",
+        "text": "#047857",
+        "border": "#A7F3D0"
+      },
+      "status_warning": {
+        "bg": "#FFFBEB",
+        "text": "#B45309",
+        "border": "#FDE68A"
+      },
+      "status_danger": {
+        "bg": "#FEF2F2",
+        "text": "#B91C1C",
+        "border": "#FECACA"
+      },
+      "status_info": {
+        "bg": "#EFF6FF",
+        "text": "#1D4ED8",
+        "border": "#BFDBFE"
+      }
+    },
+    "forbidden_colors": [
+      "#1B93A4 (Teal/Verde-água proibido para dashboards corporativos)",
+      "#7351B7 (Lilás genérico proibido)"
+    ]
+  },
+  "layout_and_architecture": {
+    "navigation": "Sidebar fixa à esquerda (com colapso no mobile) + Header superior com busca universal (Cmd+K), chaveador de perfil (RH/Admin vs Colaborador), notificações e avatar",
+    "dashboard_grid": "Grid responsiva de 12 colunas (grid-cols-1 md:grid-cols-12 gap-6) com métricas em KPI cards, gráficos estatísticos e tabelas interativas",
+    "views": [
+      "Visão Geral / Dashboard (KPIs de headcount, faltas, folha, vagas abertas)",
+      "Gestão de Colaboradores (CRUD completo com filtros por departamento, status, cargo e busca instantânea)",
+      "Organograma / Departamentos & Cargos (Visão hierárquica e faixas salariais)",
+      "Controle de Ponto e Frequência (Bater ponto online, registro de horas, espelho de ponto)",
+      "Férias e Ausências (Solicitações, saldo de dias, fluxo de aprovação/rejeição com motivo)",
+      "Recrutamento & Seleção com IA (Painel Kanban de vagas, triagem automática de currículos com Score IA)",
+      "Folha de Pagamento & Holerites (Cálculo de proventos/descontos, emissão de holerite em modal com download)",
+      "Avaliação de Desempenho (Ciclos de 360°, metas OKR e matriz Nine Box)",
+      "Portal do Colaborador (Autoatendimento: bater ponto, pedir férias, baixar holerite, visualizar dados)"
+    ]
+  },
+  "visual_enhancers": {
+    "cards": "Bordas finas (1px border-slate-200 dark:border-slate-800), cantos levemente arredondados (rounded-xl), sombras suaves (shadow-sm hover:shadow-md transition-all)",
+    "glassmorphic_header": "backdrop-blur-md bg-white/80 dark:bg-slate-900/80 sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800/80",
+    "ai_badge": "Badge especial roxa/gradiente suave com ícone de faísca (Sparkles) para módulos de IA (ex: 'Ranked por IA - 94% de Compatibilidade')",
+    "micro_interactions": "Transição de hover em botões (active:scale-[0.98]), badges animados, skeletons durante carregamento de tabelas"
+  },
+  "image_urls": {
+    "team_and_avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1573496130141-209d200cebd8?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Foto de perfil profissional da Gerente de RH (Mariana Souza)",
+        "category": "avatars"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1758518731296-20e24e58846f?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Foto de equipe corporativa para a página sobre a empresa/cultura",
+        "category": "team"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1711385532992-9d620284a943?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Foto de grupo de candidatos no módulo de recrutamento",
+        "category": "recruitment"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Certifique-se de que TODO o sistema esteja 100% traduzido para Português do Brasil (pt-BR).",
+    "Utilize os componentes da Shadcn UI (Dialog, Select, Tabs, DropdownMenu, Avatar, Badge, Table, Input, Progress, Switch) devidamente customizados.",
+    "Para notificações, use a biblioteca 'sonner' localizada em /src/components/ui/sonner.js ou sonner.jsx.",
+    "Implemente um seletor de perfil no topo (Simular visão RH/Admin vs Visão Colaborador) para alternar instantaneamente os menus e permissões.",
+    "Implemente mock de dados realista com nomes brasileiros (ex: Carlos Eduardo Silva, Ana Beatriz Lima), salários em R$, departamentos reais (Tecnologia, RH, Financeiro, Vendas, Operações).",
+    "No modulo de Triagem com IA para Recrutamento, renderize um card ou modal com a análise detalhada gerada por IA para os currículos (Pontos fortes, compatibilidade %, resumo dos dados do candidato).",
+    "Inclua obrigatoriamente data-testid em TODOS os botões, inputs, abas, links de navegação e cards principais para testes automatizados.",
+    "Substitua arquivos de extensão .tsx por .js ou .jsx onde aplicável, mantendo a compatibilidade do React com Vite/Tailwind v4."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Evite visuais genéricos ou 'AI slop'. Use espaçamento generoso (p-6, gap-6), tipografia hierarquizada e contrastes precisos.",
+    "Nunca utilize fundos 100% transparentes em headers suspensos ou modais sem aplicar filtro backdrop-blur ou cor sólida de fundo.",
+    "Toda tabela deve possuir filtros rápidos (por departamento, status de aprovação, termo de busca) e navegação por abas.",
+    "Adicione micro-animações em estados de hover, clique e transição de abas.",
+    "Todos os elementos interativos e informativos devem conter data-testid em formato kebab-case (ex: data-testid='bater-ponto-btn', data-testid='filtro-departamento-select')."
+  ]
+}
