@@ -19,7 +19,8 @@ from pydantic import BaseModel, Field, ConfigDict, BeforeValidator
 
 from typesafe_sdk import Score, Noul, TypeSafeAPIError, TypeSafeError
 from jev import get_jev_client
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+from fastapi.responses import StreamingResponse
 import httpx
 
 # ---------- DB ----------
@@ -838,6 +839,111 @@ async def update_goal_progress(gid: str, body: GoalProgress, user: dict = Depend
 async def delete_goal(gid: str, user: dict = Depends(require_admin)):
     await db.goals.delete_one({"_id": ObjectId(gid)})
     return {"ok": True}
+
+
+# ---------- Assistente RH (ChatGPT) ----------
+class ChatMsgReq(BaseModel):
+    text: str
+
+
+ASSISTANT_MODEL = ("openai", "gpt-5.5")
+
+
+async def own_session(sid: str, user: dict) -> dict:
+    s = await db.chat_sessions.find_one({"_id": ObjectId(sid), "user_id": user["_id"]})
+    if not s:
+        raise HTTPException(404, "Conversa não encontrada")
+    return s
+
+
+async def assistant_system_prompt(user: dict) -> str:
+    base = (
+        "Você é o Assistente de RH da Construa RH, um especialista em gestão de pessoas e legislação trabalhista "
+        "brasileira (CLT). Responda sempre em português do Brasil, de forma clara, cordial e objetiva, usando "
+        "markdown simples quando útil. Não invente dados da empresa; se não souber, oriente a procurar o RH.\n"
+    )
+    ctx = f"Usuário: {user.get('name')} — perfil: {'RH/Admin' if user.get('role') == 'admin' else 'Colaborador'}.\n"
+    emp_id = user.get("employee_id")
+    if emp_id:
+        emp = await db.employees.find_one({"_id": ObjectId(emp_id)})
+        if emp:
+            ctx += f"Saldo de férias: {emp.get('vacation_balance', 0)} dias. Admissão: {emp.get('admission_date') or 'n/d'}.\n"
+        last = await db.payslips.find_one({"employee_id": emp_id}, sort=[("competencia", -1)])
+        if last:
+            ctx += (f"Último holerite ({last['competencia']}): bruto R$ {last['gross']:.2f}, "
+                    f"descontos R$ {last['total_deductions']:.2f}, líquido R$ {last['net']:.2f}.\n")
+    return base + ctx
+
+
+@api.get("/assistant/sessions")
+async def list_chat_sessions(user: dict = Depends(get_current_user)):
+    docs = await db.chat_sessions.find({"user_id": user["_id"]}).sort("updated_at", -1).to_list(200)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+@api.post("/assistant/sessions")
+async def create_chat_session(user: dict = Depends(get_current_user)):
+    doc = {"user_id": user["_id"], "title": "Nova conversa", "created_at": now_iso(), "updated_at": now_iso()}
+    r = await db.chat_sessions.insert_one(doc)
+    doc["_id"] = str(r.inserted_id)
+    return doc
+
+
+@api.get("/assistant/sessions/{sid}/messages")
+async def list_chat_messages(sid: str, user: dict = Depends(get_current_user)):
+    await own_session(sid, user)
+    docs = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+@api.delete("/assistant/sessions/{sid}")
+async def delete_chat_session(sid: str, user: dict = Depends(get_current_user)):
+    await own_session(sid, user)
+    await db.chat_sessions.delete_one({"_id": ObjectId(sid)})
+    await db.chat_messages.delete_many({"session_id": sid})
+    return {"ok": True}
+
+
+@api.post("/assistant/sessions/{sid}/stream")
+async def stream_chat(sid: str, body: ChatMsgReq, user: dict = Depends(get_current_user)):
+    session = await own_session(sid, user)
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Mensagem vazia")
+    system = await assistant_system_prompt(user)
+    history = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    initial = [{"role": "system", "content": system}] + [{"role": m["role"], "content": m["content"]} for m in history]
+    await db.chat_messages.insert_one({"session_id": sid, "role": "user", "content": text, "created_at": now_iso()})
+    if session.get("title") == "Nova conversa":
+        await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"title": text[:60]}})
+    chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"assistant-{sid}",
+                   system_message=system, initial_messages=initial).with_model(*ASSISTANT_MODEL)
+
+    async def gen():
+        import json
+        parts = []
+        try:
+            async for ev in chat.stream_message(UserMessage(text=text)):
+                if isinstance(ev, TextDelta):
+                    parts.append(ev.content)
+                    yield f"data: {json.dumps({'delta': ev.content})}\n\n"
+                elif isinstance(ev, StreamDone):
+                    break
+        except Exception as exc:
+            logger.warning("Assistant stream failed: %s", exc)
+            yield f"data: {json.dumps({'error': 'O assistente está indisponível no momento. Tente novamente.'})}\n\n"
+        answer = "".join(parts)
+        if answer:
+            await db.chat_messages.insert_one({"session_id": sid, "role": "assistant", "content": answer, "created_at": now_iso()})
+        await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"updated_at": now_iso()}})
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 app.include_router(api)

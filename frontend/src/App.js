@@ -15,6 +15,7 @@ import Payroll from "@/pages/Payroll";
 import Performance from "@/pages/Performance";
 import MyPayslips from "@/pages/MyPayslips";
 import Portal from "@/pages/Portal";
+import Assistant from "@/pages/Assistant";
 
 function Protected({ children, adminOnly }) {
   const { user, loading, isAdmin } = useAuth();
@@ -55,6 +56,7 @@ function App() {
               <Route path="/desempenho" element={<Protected adminOnly><Performance /></Protected>} />
               <Route path="/meus-holerites" element={<Protected><MyPayslips /></Protected>} />
               <Route path="/portal" element={<Protected><Portal /></Protected>} />
+              <Route path="/assistente" element={<Protected><Assistant /></Protected>} />
             </Routes>
             <Toaster richColors position="top-right" />
           </BrowserRouter>
