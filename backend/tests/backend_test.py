@@ -403,3 +403,177 @@ class TestPerformance:
         r = requests.post(f"{API}/eval-cycles", headers=emp_h,
                           json={"name": "x", "period": "x"}, timeout=30)
         assert r.status_code == 403
+
+
+
+# ------- Phase 3: Goals / Metas & OKRs -------
+class TestGoals:
+    def _get_cycle(self, admin_h):
+        cycles = requests.get(f"{API}/eval-cycles", headers=admin_h, timeout=30).json()
+        return cycles[0]["_id"]
+
+    def _get_emp_employee_id(self, emp_h):
+        me = requests.get(f"{API}/auth/me", headers=emp_h, timeout=30).json()
+        return me.get("employee_id")
+
+    def test_admin_create_goal_and_list(self, admin_h, emp_h):
+        cid = self._get_cycle(admin_h)
+        own_eid = self._get_emp_employee_id(emp_h)
+        assert own_eid
+        payload = {"cycle_id": cid, "employee_id": own_eid,
+                   "title": "TEST_Meta_Carlos", "description": "teste",
+                   "progress": 20}
+        r = requests.post(f"{API}/goals", headers=admin_h, json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        g = r.json()
+        assert g["title"] == "TEST_Meta_Carlos"
+        assert g["progress"] == 20
+        assert g["status"] == "em_andamento"
+        assert g.get("employee_name")
+        gid = g["_id"]
+
+        # list filtered by cycle
+        lst = requests.get(f"{API}/goals?cycle_id={cid}", headers=admin_h, timeout=30).json()
+        assert any(x["_id"] == gid for x in lst)
+
+        # employee GET scoped to own employee_id (no param)
+        emp_lst = requests.get(f"{API}/goals", headers=emp_h, timeout=30).json()
+        assert all(x["employee_id"] == own_eid for x in emp_lst)
+        assert any(x["_id"] == gid for x in emp_lst)
+
+        # employee updates own progress
+        upd = requests.put(f"{API}/goals/{gid}", headers=emp_h,
+                           json={"progress": 50}, timeout=30)
+        assert upd.status_code == 200
+        assert upd.json()["progress"] == 50
+        assert upd.json()["status"] == "em_andamento"
+
+        # auto-concluida at 100
+        upd2 = requests.put(f"{API}/goals/{gid}", headers=admin_h,
+                            json={"progress": 100}, timeout=30)
+        assert upd2.status_code == 200
+        assert upd2.json()["progress"] == 100
+        assert upd2.json()["status"] == "concluida"
+
+        # clamp above 100
+        upd3 = requests.put(f"{API}/goals/{gid}", headers=admin_h,
+                            json={"progress": 150}, timeout=30)
+        assert upd3.json()["progress"] == 100
+
+        # delete
+        rd = requests.delete(f"{API}/goals/{gid}", headers=admin_h, timeout=30)
+        assert rd.status_code == 200
+
+    def test_employee_cannot_create_goal(self, emp_h, admin_h):
+        cid = self._get_cycle(admin_h)
+        own_eid = self._get_emp_employee_id(emp_h)
+        r = requests.post(f"{API}/goals", headers=emp_h,
+                          json={"cycle_id": cid, "employee_id": own_eid,
+                                "title": "x", "progress": 0}, timeout=30)
+        assert r.status_code == 403
+
+    def test_employee_cannot_update_others_goal(self, admin_h, emp_h):
+        cid = self._get_cycle(admin_h)
+        # pick an employee that is not Carlos
+        emps = requests.get(f"{API}/employees", headers=admin_h, timeout=30).json()
+        own_eid = self._get_emp_employee_id(emp_h)
+        other = next(e for e in emps if e["_id"] != own_eid)
+        r = requests.post(f"{API}/goals", headers=admin_h, json={
+            "cycle_id": cid, "employee_id": other["_id"],
+            "title": "TEST_OtherGoal", "progress": 10}, timeout=30)
+        assert r.status_code == 200
+        gid = r.json()["_id"]
+        try:
+            # employee tries to update someone else's goal -> 403
+            upd = requests.put(f"{API}/goals/{gid}", headers=emp_h,
+                               json={"progress": 90}, timeout=30)
+            assert upd.status_code == 403
+        finally:
+            requests.delete(f"{API}/goals/{gid}", headers=admin_h, timeout=30)
+
+    def test_update_nonexistent_goal(self, admin_h):
+        fake = "507f1f77bcf86cd799439011"
+        r = requests.put(f"{API}/goals/{fake}", headers=admin_h,
+                         json={"progress": 10}, timeout=30)
+        assert r.status_code == 404
+
+
+# ------- Phase 3: Payslip Email (disabled - RESEND_API_KEY empty) -------
+class TestPayslipEmail:
+    def test_email_returns_not_configured(self, admin_h):
+        # pick any payslip (TestPayroll generated 2026-06 for all)
+        lst = requests.get(f"{API}/payslips?competencia=2026-06", headers=admin_h, timeout=30).json()
+        if not lst:
+            # generate on the fly
+            requests.post(f"{API}/payslips/generate-all", headers=admin_h,
+                          json={"competencia": "2026-06"}, timeout=60)
+            lst = requests.get(f"{API}/payslips?competencia=2026-06", headers=admin_h, timeout=30).json()
+        assert lst, "need at least one payslip"
+        pid = lst[0]["_id"]
+        r = requests.post(f"{API}/payslips/{pid}/email", headers=admin_h, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["sent"] is False
+        assert d["configured"] is False
+        assert "RESEND_API_KEY" in d["message"] or "configurado" in d["message"].lower()
+
+    def test_email_employee_forbidden(self, emp_h, admin_h):
+        lst = requests.get(f"{API}/payslips?competencia=2026-06", headers=admin_h, timeout=30).json()
+        if lst:
+            r = requests.post(f"{API}/payslips/{lst[0]['_id']}/email", headers=emp_h, timeout=30)
+            assert r.status_code == 403
+
+    def test_email_payslip_not_found(self, admin_h):
+        fake = "507f1f77bcf86cd799439011"
+        r = requests.post(f"{API}/payslips/{fake}/email", headers=admin_h, timeout=30)
+        assert r.status_code == 404
+
+
+# ------- Phase 3: AI Summary (LLM via EMERGENT_LLM_KEY) -------
+class TestAISummary:
+    def test_ai_summary_generation(self, admin_h):
+        # Create job + candidate for the summary
+        deps = requests.get(f"{API}/departments", headers=admin_h, timeout=30).json()
+        j = requests.post(f"{API}/jobs", headers=admin_h, json={
+            "title": "TEST_Dev Python", "department_id": deps[0]["_id"],
+            "description": "Desenvolvedor backend Python com FastAPI e MongoDB",
+            "requirements": "Python, FastAPI, MongoDB, Docker, 3+ anos",
+            "location": "Remoto", "status": "aberta"}, timeout=30).json()
+        jid = j["_id"]
+        try:
+            resume = ("Desenvolvedor backend com 5 anos de experiência em Python, FastAPI e MongoDB. "
+                      "Experiência com Docker, AWS e microsserviços. Inglês avançado.")
+            c = requests.post(f"{API}/candidates", headers=admin_h, json={
+                "job_id": jid, "name": "TEST_IA_Cand", "email": "iacand@x.com",
+                "phone": "11", "resume_text": resume}, timeout=120).json()
+            cid = c["_id"]
+
+            # Call AI summary (slow - LLM)
+            r = requests.post(f"{API}/candidates/{cid}/ai-summary",
+                              headers=admin_h, timeout=120)
+            assert r.status_code == 200, r.text
+            d = r.json()
+            assert "ai_summary" in d
+            s = d["ai_summary"]
+            assert isinstance(s.get("pontos_fortes"), list) and len(s["pontos_fortes"]) >= 1
+            assert isinstance(s.get("lacunas"), list)
+            assert isinstance(s.get("recomendacao"), str) and len(s["recomendacao"]) > 0
+            print(f"\nAI Summary: fortes={len(s['pontos_fortes'])} lacunas={len(s['lacunas'])} rec={s['recomendacao'][:80]}")
+
+            # persisted on candidate
+            lst = requests.get(f"{API}/jobs/{jid}/candidates", headers=admin_h, timeout=30).json()
+            cand = next(x for x in lst if x["_id"] == cid)
+            assert "ai_summary" in cand
+        finally:
+            requests.delete(f"{API}/jobs/{jid}", headers=admin_h, timeout=30)
+
+    def test_ai_summary_employee_forbidden(self, emp_h, admin_h):
+        # need any candidate id - just use fake id since 403 must trigger before lookup
+        fake = "507f1f77bcf86cd799439011"
+        r = requests.post(f"{API}/candidates/{fake}/ai-summary", headers=emp_h, timeout=30)
+        assert r.status_code == 403
+
+    def test_ai_summary_not_found(self, admin_h):
+        fake = "507f1f77bcf86cd799439011"
+        r = requests.post(f"{API}/candidates/{fake}/ai-summary", headers=admin_h, timeout=30)
+        assert r.status_code == 404

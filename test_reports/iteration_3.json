@@ -1,0 +1,34 @@
+{
+  "summary": "Phase 3 (Metas & OKRs + Dark Mode + Holerite por e-mail INACTIVE + Resumo IA do Candidato) tested end-to-end. Backend: 43/43 pytest cases pass. Added 10 new tests: TestGoals (admin create+list+employee-scoped GET+employee update own+auto-concluida at 100+clamp>100+delete; employee cannot create 403; employee cannot update other's goal 403; 404 on unknown id), TestPayslipEmail (returns {sent:false, configured:false} with RESEND_API_KEY empty — correct per spec; employee 403; 404 on unknown id), TestAISummary (POST /api/candidates/{id}/ai-summary calls LLM via EMERGENT_LLM_KEY+gpt-5.4, returns ai_summary {pontos_fortes[], lacunas[], recomendacao}; persisted on candidate doc; employee 403; 404). All Phase 1+2 regression tests remained green. Frontend: Dark mode theme-toggle in header adds/removes .dark class on <html> and persists in localStorage.rh_theme='dark'/'light'; toggling twice reverts. /desempenho: selected seeded cycle, Nova Meta dialog opened, goal-employee select listed 8 employees (picked Carlos), goal-title filled, save-goal persisted and 'TEST_UI_Meta_FE' appears with 10% progress bar; goal-plus-{id}/goal-minus-{id} work. /portal (colaborador@construa.com): 'Minhas Metas' section visible, portal-goal-plus-{id}/portal-goal-minus-{id} present and clickable for Carlos' own goal. /recrutamento: added candidate 'TEST_UI_IA_Cand' to first job (AI screening succeeded), ai-summary-{id} button appeared and after click (~15s LLM) 'Pontos fortes' and 'Lacunas' sections rendered. /folha: with competência 2026-06 the 8 payslips show, view-payslip-* opens modal with 'Enviar por e-mail' (email-payslip) button; clicking shows info toast 'Envio de e-mail ainda não configurado. Conecte uma chave Resend (RESEND_API_KEY) para ativar.' — correct inactive behavior.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Nova Meta dialog + several Radix Dialogs", "issues": ["Console warning: Missing `Description` or `aria-describedby={undefined}` on DialogContent — non-blocking a11y, carryover from iter 2"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(nice-to-have) Add DialogDescription or aria-describedby to Nova Meta + Avaliar + Holerite DialogContent to silence Radix a11y warning"
+  ],
+  "critical_code_review_comments": [
+    "/api/goals PUT correctly enforces ownership for employee role (403 when goal.employee_id != user.employee_id) — verified.",
+    "/api/goals GET for non-admin forces employee_id = user.employee_id — proper row-level scoping (unlike /api/payslips, /api/evaluations, /api/attendance list endpoints which were flagged in iter 2 as still missing enforcement). Consider aligning those for consistency.",
+    "Email payslip endpoint has a safe graceful fallback when RESEND_API_KEY is empty (returns {sent:false, configured:false}) — good UX pattern.",
+    "AI summary endpoint parses LLM response with regex-based JSON extraction (re.search(r'\\{.*\\}', text, re.DOTALL)) — robust against markdown wrappers; 503 on failure.",
+    "server.py still uses deprecated @app.on_event — would benefit from FastAPI lifespan context (carryover)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestGoals, TestPayslipEmail, TestAISummary)"
+  ],
+  "success_rate": {"backend": "100% (43/43)", "frontend": "100% (all Phase 3 flows + regression)"},
+  "test_credentials": "Admin rh@construa.com / rh123456 ; Employee colaborador@construa.com / colab123 (Carlos Eduardo Silva)",
+  "seed_data_creation": "Backend tests created a transient goal for Carlos, a goal for another employee (cleaned up), and TEST_Dev Python job + TEST_IA_Cand candidate (cleaned up via job delete cascade). Frontend test persisted 'TEST_UI_Meta_FE' goal for Carlos (visible in /portal and /desempenho) and 'TEST_UI_IA_Cand' candidate on first job with its ai_summary. These TEST_ records may be purged by main agent if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase 1+2+3 all green (43/43 backend, 100% UI). Email feature intentionally inactive — a {sent:false, configured:false} response is correct, do NOT flag as a bug unless RESEND_API_KEY is populated. For AI summary tests, allow up to ~15-20s per LLM call. Employee own-goal PUT requires a goal pre-created by admin for that employee_id. Row-level scoping is only enforced on /api/goals + /api/vacations + /api/attendance (query override) + /api/payslips (query override) — /api/evaluations relies on query filter too; direct POSTs are admin-only via require_admin."
+}

@@ -37,3 +37,6 @@ Role-based login, HR dashboard KPIs, Employees CRUD + filters, Departments & Pos
 - P2: Dark mode toggle, pagination on lists, Cmd+K universal search.
 - P2: Brute-force protection + explicit CORS origins for prod; migrate @app.on_event to lifespan.
 - P3: Resumo por IA dos pontos fortes/lacunas de cada currículo.
+
+## Jun 2026
+- Usuário orientado a exportar o código (Save to Github / editor Code). Sem mudanças no código.
